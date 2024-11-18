@@ -47,80 +47,85 @@ const parseImageFile = (
 };
 
 export type FileUploaderResult = {
-  /** The processed image content as a data URL (for regular images) or object URL (for SVGs) */
-  imageContent: string;
-  /** The raw file content as a string */
-  rawContent: string;
-  /** Metadata about the uploaded image including dimensions and filename */
-  imageMetadata: {
+  /** The processed image contents as data URLs (for regular images) or object URLs (for SVGs) */
+  imageContents: string[];
+  /** The raw file contents as strings */
+  rawContents: string[];
+  /** Metadata about the uploaded images including dimensions and filenames */
+  imageMetadatas: {
     width: number;
     height: number;
     name: string;
-  } | null;
+  }[];
   /** Handler for file input change events */
-  handleFileUpload: (file: File) => void;
-  handleFileUploadEvent: (event: ChangeEvent<HTMLInputElement>) => void;
+  handleFileUpload: (files: File[]) => Promise<void>;
+  handleFileUploadEvent: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
   /** Resets the upload state */
   cancel: () => void;
 };
 
 /**
- * A hook for handling file uploads, particularly images and SVGs
+ * A hook for handling multiple file uploads, particularly images and SVGs
  * @returns {FileUploaderResult} An object containing:
- * - imageContent: Use this as the src for an img tag
- * - rawContent: The raw file content as a string (useful for SVG tags)
- * - imageMetadata: Width, height, and name of the image
+ * - imageContents: Use these as the src for img tags
+ * - rawContents: The raw file contents as strings (useful for SVG tags)
+ * - imageMetadatas: Width, height, and name of the images
  * - handleFileUpload: Function to handle file input change events
  * - cancel: Function to reset the upload state
  */
 export const useFileUploader = (): FileUploaderResult => {
-  const [imageContent, setImageContent] = useState<string>("");
-  const [rawContent, setRawContent] = useState<string>("");
-  const [imageMetadata, setImageMetadata] = useState<{
+  const [imageContents, setImageContents] = useState<string[]>([]);
+  const [rawContents, setRawContents] = useState<string[]>([]);
+  const [imageMetadatas, setImageMetadatas] = useState<{
     width: number;
     height: number;
     name: string;
-  } | null>(null);
+  }[]>([]);
 
-  const processFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const content = e.target?.result as string;
-      setRawContent(content);
+  const processFiles = async (files: File[]) => {
+    const newImageContents: string[] = [];
+    const newRawContents: string[] = [];
+    const newImageMetadatas: { width: number; height: number; name: string }[] = [];
+
+    for (const file of files) {
+      const reader = new FileReader();
+      const content = await new Promise<string>((resolve) => {
+        reader.onload = (e) => resolve(e.target?.result as string);
+        console.log('file', file);
+        if (file.type === "image/svg+xml") {
+          reader.readAsText(file);
+        } else {
+          reader.readAsDataURL(file);
+        }
+      });
+
+      newRawContents.push(content);
 
       if (file.type === "image/svg+xml") {
-        const { content: svgContent, metadata } = parseSvgFile(
-          content,
-          file.name,
-        );
-        setImageContent(svgContent);
-        setImageMetadata(metadata);
+        const { content: svgContent, metadata } = parseSvgFile(content, file.name);
+        newImageContents.push(svgContent);
+        newImageMetadatas.push(metadata);
       } else {
-        const { content: imgContent, metadata } = await parseImageFile(
-          content,
-          file.name,
-        );
-        setImageContent(imgContent);
-        setImageMetadata(metadata);
+        const { content: imgContent, metadata } = await parseImageFile(content, file.name);
+        newImageContents.push(imgContent);
+        newImageMetadatas.push(metadata);
       }
-    };
+    }
 
-    if (file.type === "image/svg+xml") {
-      reader.readAsText(file);
-    } else {
-      reader.readAsDataURL(file);
+    setImageContents((prev) => [...prev, ...newImageContents]);
+    setRawContents((prev) => [...prev, ...newRawContents]);
+    setImageMetadatas((prev) => [...prev, ...newImageMetadatas]);
+  };
+
+  const handleFileUploadEvent = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length > 0) {
+      await processFiles(files);
     }
   };
 
-  const handleFileUploadEvent = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      processFile(file);
-    }
-  };
-
-  const handleFilePaste = useCallback((file: File) => {
-    processFile(file);
+  const handleFilePaste = useCallback(async (file: File[]) => {
+    await processFiles([...file]);
   }, []);
 
   useClipboardPaste({
@@ -129,15 +134,16 @@ export const useFileUploader = (): FileUploaderResult => {
   });
 
   const cancel = () => {
-    setImageContent("");
-    setImageMetadata(null);
+    setImageContents([]);
+    setRawContents([]);
+    setImageMetadatas([]);
   };
 
   return {
-    imageContent,
-    rawContent,
-    imageMetadata,
-    handleFileUpload: processFile,
+    imageContents,
+    rawContents,
+    imageMetadatas,
+    handleFileUpload: processFiles,
     handleFileUploadEvent,
     cancel,
   };

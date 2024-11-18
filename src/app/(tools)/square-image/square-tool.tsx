@@ -1,6 +1,6 @@
 "use client";
 
-import { usePlausible } from "next-plausible";
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { UploadBox } from "@/components/shared/upload-box";
 import { OptionSelector } from "@/components/shared/option-selector";
@@ -10,70 +10,105 @@ import {
   useFileUploader,
 } from "@/hooks/use-file-uploader";
 import { useEffect, useState } from "react";
+import { default as JSZip } from "jszip";
+import { saveAs } from "file-saver";
+
+interface SquareImage {
+  content: string;
+  name: string;
+}
 
 function SquareToolCore(props: { fileUploaderProps: FileUploaderResult }) {
-  const { imageContent, imageMetadata, handleFileUploadEvent, cancel } =
+  const { imageContents, imageMetadatas, handleFileUploadEvent, cancel } =
     props.fileUploaderProps;
 
-  const [backgroundColor, setBackgroundColor] = useLocalStorage<
-    "black" | "white"
-  >("squareTool_backgroundColor", "white");
-
-  const [squareImageContent, setSquareImageContent] = useState<string | null>(
-    null,
+  const [backgroundColor, setBackgroundColor] = useLocalStorage<string>(
+    "squareTool_backgroundColor",
+    "white",
   );
+  const [squareImages, setSquareImages] = useState<SquareImage[]>([]);
 
   useEffect(() => {
-    if (imageContent && imageMetadata) {
-      const canvas = document.createElement("canvas");
-      const size = Math.max(imageMetadata.width, imageMetadata.height);
-      canvas.width = size;
-      canvas.height = size;
+    const processImages = async () => {
+      if (imageContents && imageMetadatas && imageMetadatas.length > 0) {
+        const newSquareImages: SquareImage[] = [];
 
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+        for (let i = 0; i < imageContents.length; i++) {
+          const canvas = document.createElement("canvas");
+          const size = Math.max(
+            imageMetadatas[i]?.width ?? 0,
+            imageMetadatas[i]?.height ?? 0,
+          );
+          canvas.width = size;
+          canvas.height = size;
 
-      // Fill background
-      ctx.fillStyle = backgroundColor;
-      ctx.fillRect(0, 0, size, size);
+          const ctx = canvas.getContext("2d");
+          if (!ctx) continue;
 
-      // Load and center the image
-      const img = new Image();
-      img.onload = () => {
-        const x = (size - imageMetadata.width) / 2;
-        const y = (size - imageMetadata.height) / 2;
-        ctx.drawImage(img, x, y);
-        setSquareImageContent(canvas.toDataURL("image/png"));
-      };
-      img.src = imageContent;
-    }
-  }, [imageContent, imageMetadata, backgroundColor]);
+          // Fill background
+          ctx.fillStyle = backgroundColor;
+          ctx.fillRect(0, 0, size, size);
 
-  const handleSaveImage = () => {
-    if (squareImageContent && imageMetadata) {
-      const link = document.createElement("a");
-      link.href = squareImageContent;
-      const originalFileName = imageMetadata.name;
-      const fileNameWithoutExtension =
-        originalFileName.substring(0, originalFileName.lastIndexOf(".")) ||
-        originalFileName;
-      link.download = `${fileNameWithoutExtension}-squared.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+          // Load and center the image
+          const img = new Image();
+          await new Promise((resolve) => {
+            img.onload = resolve;
+            img.src = imageContents[i] ?? "";
+          });
+
+          const x = (size - (imageMetadatas[i]?.width ?? 0)) / 2;
+          const y = (size - (imageMetadatas[i]?.height ?? 0)) / 2;
+          ctx.drawImage(img, x, y);
+
+          newSquareImages.push({
+            content: canvas.toDataURL("image/png"),
+            name: imageMetadatas[i]?.name ?? "image.png",
+          });
+        }
+        setSquareImages(newSquareImages);
+      }
+    };
+    processImages()
+      .then((result) => {
+        console.log("DONE");
+      })
+      .catch((error) => {
+        console.log(error);
+      });
+  }, [imageContents, imageMetadatas, backgroundColor]);
+
+  const handleSaveImages = async () => {
+    if (squareImages.length > 0) {
+      const zip = new JSZip();
+
+      squareImages.forEach((image) => {
+        const fileNameWithoutExtension =
+          image.name.substring(0, image.name.lastIndexOf(".")) || image.name;
+        zip.file(
+          `${fileNameWithoutExtension}-squared.png`,
+          image.content.split(",")[1]! ?? undefined,
+          { base64: true },
+        );
+      });
+
+      try {
+        const content = await zip.generateAsync({ type: "blob" });
+        saveAs(content, "squared-images.zip");
+      } catch (error) {
+        console.error("Error saving images:", error);
+      }
     }
   };
 
-  const plausible = usePlausible();
-
-  if (!imageMetadata) {
+  if (!imageMetadatas || imageMetadatas.length === 0) {
     return (
       <UploadBox
         title="Create square images with custom backgrounds. Fast and free."
         subtitle="Allows pasting images from clipboard"
-        description="Upload Image"
+        description="Upload Images"
         accept="image/*"
         onChange={handleFileUploadEvent}
+        multiple
       />
     );
   }
@@ -81,39 +116,33 @@ function SquareToolCore(props: { fileUploaderProps: FileUploaderResult }) {
   return (
     <div className="mx-auto flex max-w-2xl flex-col items-center justify-center gap-6 p-6">
       <div className="flex w-full flex-col items-center gap-4 rounded-xl p-6">
-        {squareImageContent && (
-          <img src={squareImageContent} alt="Preview" className="mb-4" />
-        )}
-        <p className="text-lg font-medium text-white/80">
-          {imageMetadata.name}
-        </p>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+          {squareImages.map((image, index) => (
+            <div key={index} className="flex flex-col items-center">
+              <img
+                src={image.content}
+                alt={`Preview ${index + 1}`}
+                className="mb-2 max-w-full"
+              />
+              <p className="text-sm font-medium text-white/80">{image.name}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="flex gap-6 text-base">
         <div className="flex flex-col items-center rounded-lg bg-white/5 p-3">
-          <span className="text-sm text-white/60">Original</span>
+          <span className="text-sm text-white/60">Images</span>
           <span className="font-medium text-white">
-            {imageMetadata.width} × {imageMetadata.height}
-          </span>
-        </div>
-
-        <div className="flex flex-col items-center rounded-lg bg-white/5 p-3">
-          <span className="text-sm text-white/60">Square Size</span>
-          <span className="font-medium text-white">
-            {Math.max(imageMetadata.width, imageMetadata.height)} ×{" "}
-            {Math.max(imageMetadata.width, imageMetadata.height)}
+            {imageMetadatas.length}
           </span>
         </div>
       </div>
 
       <OptionSelector
         title="Background Color"
-        options={["white", "black"]}
         selected={backgroundColor}
         onChange={setBackgroundColor}
-        formatOption={(option) =>
-          option.charAt(0).toUpperCase() + option.slice(1)
-        }
       />
 
       <div className="flex gap-3">
@@ -124,13 +153,10 @@ function SquareToolCore(props: { fileUploaderProps: FileUploaderResult }) {
           Cancel
         </button>
         <button
-          onClick={() => {
-            plausible("create-square-image");
-            handleSaveImage();
-          }}
+          onClick={handleSaveImages}
           className="rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white shadow-md transition-colors duration-200 hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-75"
         >
-          Save Image
+          Save Images as ZIP
         </button>
       </div>
     </div>
@@ -142,9 +168,10 @@ export function SquareTool() {
 
   return (
     <FileDropzone
-      setCurrentFile={fileUploaderProps.handleFileUpload}
+      setCurrentFiles={fileUploaderProps.handleFileUpload}
       acceptedFileTypes={["image/*", ".jpg", ".jpeg", ".png", ".webp", ".svg"]}
-      dropText="Drop image file"
+      dropText="Drop image files"
+      multiple
     >
       <SquareToolCore fileUploaderProps={fileUploaderProps} />
     </FileDropzone>

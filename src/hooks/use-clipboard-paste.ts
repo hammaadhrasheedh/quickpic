@@ -1,10 +1,10 @@
-"use client";
+"use client"
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback } from "react"
 
 interface UseClipboardPasteProps {
-  onPaste: (file: File) => void;
-  acceptedFileTypes: string[];
+  onPaste: (files: File[]) => void | Promise<void>
+  acceptedFileTypes: string[]
 }
 
 export function useClipboardPaste({
@@ -13,38 +13,43 @@ export function useClipboardPaste({
 }: UseClipboardPasteProps) {
   const handlePaste = useCallback(
     async (event: ClipboardEvent) => {
-      const items = event.clipboardData?.items;
-      if (!items) return;
+      const items = event.clipboardData?.items
+      if (!items) return
+
+      const pastedFiles: File[] = []
 
       for (const item of Array.from(items)) {
         if (item.type.startsWith("image/")) {
-          const file = item.getAsFile();
-          if (!file) continue;
+          const file = item.getAsFile()
+          if (!file) continue
 
           const isAcceptedType = acceptedFileTypes.some(
             (type) =>
               type === "image/*" ||
               type === item.type ||
-              file.name.toLowerCase().endsWith(type.replace("*", "")),
-          );
+              file.name.toLowerCase().endsWith(type.replace("*", ""))
+          )
 
           if (isAcceptedType) {
-            event.preventDefault();
-            onPaste(file);
-            break;
+            pastedFiles.push(file)
           }
         }
       }
+
+      if (pastedFiles.length > 0) {
+        event.preventDefault()
+        await onPaste(pastedFiles)
+      }
     },
-    [onPaste, acceptedFileTypes],
-  );
+    [onPaste, acceptedFileTypes]
+  )
 
   useEffect(() => {
     const handler = (event: ClipboardEvent) => {
-      void handlePaste(event);
-    };
+      void handlePaste(event)
+    }
 
-    document.addEventListener("paste", handler);
-    return () => document.removeEventListener("paste", handler);
-  }, [handlePaste]);
+    document.addEventListener("paste", handler)
+    return () => document.removeEventListener("paste", handler)
+  }, [handlePaste])
 }

@@ -5,6 +5,7 @@ interface UploadBoxProps {
   subtitle?: string;
   description: string;
   accept: string;
+  multiple?: boolean;
   onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
@@ -14,6 +15,7 @@ export function UploadBox({
   description,
   accept,
   onChange,
+  multiple = false
 }: UploadBoxProps) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 p-4">
@@ -45,6 +47,7 @@ export function UploadBox({
           <span>{description}</span>
           <input
             type="file"
+            multiple={multiple}
             onChange={onChange}
             accept={accept}
             className="hidden"

@@ -4,14 +4,16 @@ interface FileDropzoneProps {
   children: React.ReactNode;
   acceptedFileTypes: string[];
   dropText: string;
-  setCurrentFile: (file: File) => void;
+  setCurrentFiles: (files: File[]) => Promise<void>;
+  multiple?: boolean;
 }
 
 export function FileDropzone({
   children,
   acceptedFileTypes,
   dropText,
-  setCurrentFile,
+  setCurrentFiles,
+  multiple = false,
 }: FileDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
@@ -48,30 +50,41 @@ export function FileDropzone({
       setIsDragging(false);
       dragCounter.current = 0;
 
-      const files = e.dataTransfer?.files;
+      const files = e.dataTransfer?.files ?? [];
       if (files && files.length > 0) {
-        const droppedFile = files[0];
+        const droppedFiles = multiple ? Array.from(files) : [files[0]];
 
-        if (!droppedFile) {
-          alert("How did you do a drop with no files???");
+        if (droppedFiles.length === 0 || droppedFiles === undefined) {
+          alert("No files were dropped");
           throw new Error("No files dropped");
         }
 
-        if (
-          !acceptedFileTypes.includes(droppedFile.type) &&
-          !acceptedFileTypes.some((type) =>
-            droppedFile.name.toLowerCase().endsWith(type.replace("*", "")),
-          )
-        ) {
-          alert("Invalid file type. Please upload a supported file type.");
-          throw new Error("Invalid file");
+        const invalidFiles = droppedFiles.filter(
+          (file) =>
+            !file || 
+            !acceptedFileTypes.includes(file.type) &&
+            !acceptedFileTypes.some((type) =>
+              file.name.toLowerCase().endsWith(type.replace("*", "")),
+            ),
+        );
+
+        if (invalidFiles.length > 0) {
+          alert(
+            `Invalid file type(s): ${invalidFiles.map((f) => f?.name).join(", ")}. Please upload supported file types.`,
+          );
+          throw new Error("Invalid file(s)");
         }
 
-        // Happy path
-        setCurrentFile(droppedFile);
+        setCurrentFiles(droppedFiles.filter((file) => file !== undefined))
+          .then(() => {
+            console.log("Files uploaded:", droppedFiles);
+          })
+          .catch((error) => {
+            console.log("Error uploading files:", error);
+          });
       }
     },
-    [acceptedFileTypes, setCurrentFile],
+    [acceptedFileTypes, setCurrentFiles, multiple],
   );
 
   return (
